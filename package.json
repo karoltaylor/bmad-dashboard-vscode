@@ -1,0 +1,82 @@
+{
+  "name": "bmad-dashboard",
+  "displayName": "BMAD Dashboard",
+  "description": "Read-only JIRA-style dashboard for BMAD method projects (epics, stories, tasks) sourced from _bmad-output/.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/_bmad-output/implementation-artifacts/sprint-status.yaml"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bmad-dashboard",
+          "title": "BMAD Dashboard",
+          "icon": "media/bmad.svg"
+        }
+      ]
+    },
+    "views": {
+      "bmad-dashboard": [
+        {
+          "id": "bmadDashboard.tree",
+          "name": "Project",
+          "icon": "media/bmad.svg",
+          "contextualTitle": "BMAD"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "bmadDashboard.openBoard",
+        "title": "BMAD: Open Board",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "bmadDashboard.refresh",
+        "title": "BMAD: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "bmadDashboard.openFile",
+        "title": "BMAD: Open File"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "bmadDashboard.openBoard",
+          "when": "view == bmadDashboard.tree",
+          "group": "navigation"
+        },
+        {
+          "command": "bmadDashboard.refresh",
+          "when": "view == bmadDashboard.tree",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}
