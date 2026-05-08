@@ -35,6 +35,14 @@ export interface BmadTask {
   subtasks: BmadTask[];
 }
 
+export interface BmadDeferredItem {
+  tag: string | undefined;
+  text: string;
+  promoted: boolean;
+  reviewDate: string | undefined;
+  sourceLine: number;
+}
+
 export interface BmadStory {
   id: string;
   epicNumber: number;
@@ -46,6 +54,7 @@ export interface BmadStory {
   tasks: BmadTask[];
   taskCounts: { total: number; done: number };
   acCount: number;
+  deferred: BmadDeferredItem[];
 }
 
 export interface BmadEpic {
@@ -65,6 +74,7 @@ export interface BmadProject {
   generated: string | undefined;
   lastUpdated: string | undefined;
   epics: BmadEpic[];
+  deferredFilePath: string | undefined;
   errors: string[];
 }
 

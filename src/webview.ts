@@ -10,6 +10,7 @@ interface SerializableProject {
   projectName: string;
   generated: string | undefined;
   lastUpdated: string | undefined;
+  deferredFilePath: string | undefined;
   epics: {
     number: number;
     title: string;
@@ -17,6 +18,14 @@ interface SerializableProject {
     storyCount: number;
   }[];
   stories: SerializableStory[];
+}
+
+interface SerializableDeferredItem {
+  tag: string | undefined;
+  text: string;
+  promoted: boolean;
+  reviewDate: string | undefined;
+  sourceLine: number;
 }
 
 interface SerializableStory {
@@ -29,6 +38,7 @@ interface SerializableStory {
   taskTotal: number;
   taskDone: number;
   acCount: number;
+  deferred: SerializableDeferredItem[];
 }
 
 export class BmadBoardPanel {
@@ -87,6 +97,9 @@ export class BmadBoardPanel {
   private handleMessage(msg: { type: string; [k: string]: unknown }): void {
     if (msg.type === 'openStory' && typeof msg.filePath === 'string') {
       vscode.commands.executeCommand('vscode.open', vscode.Uri.file(msg.filePath));
+    } else if (msg.type === 'openDeferred' && typeof msg.filePath === 'string') {
+      const line = typeof msg.line === 'number' ? msg.line : 0;
+      vscode.commands.executeCommand('bmadDashboard.openFile', msg.filePath, line);
     } else if (msg.type === 'requestRefresh') {
       vscode.commands.executeCommand('bmadDashboard.refresh');
     }
@@ -107,6 +120,7 @@ function serializeProject(p: BmadProject): SerializableProject {
     projectName: p.projectName,
     generated: p.generated,
     lastUpdated: p.lastUpdated,
+    deferredFilePath: p.deferredFilePath,
     epics: p.epics.map((e) => ({
       number: e.number,
       title: e.title,
@@ -128,6 +142,13 @@ function serializeStory(s: BmadStory): SerializableStory {
     taskTotal: s.taskCounts.total,
     taskDone: s.taskCounts.done,
     acCount: s.acCount,
+    deferred: s.deferred.map((d) => ({
+      tag: d.tag,
+      text: d.text,
+      promoted: d.promoted,
+      reviewDate: d.reviewDate,
+      sourceLine: d.sourceLine,
+    })),
   };
 }
 
@@ -296,6 +317,57 @@ function renderHtml(webview: vscode.Webview, _extensionUri: vscode.Uri): string 
     background: var(--vscode-badge-background);
     color: var(--vscode-badge-foreground);
   }
+  .card-meta .deferred-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--vscode-charts-orange, #ff9800) 20%, transparent);
+    color: var(--vscode-charts-orange, #ff9800);
+    border: 1px solid color-mix(in srgb, var(--vscode-charts-orange, #ff9800) 40%, transparent);
+    cursor: pointer;
+    user-select: none;
+  }
+  .card-meta .deferred-pill:hover {
+    background: color-mix(in srgb, var(--vscode-charts-orange, #ff9800) 30%, transparent);
+  }
+  .deferred-list {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border: 1px dashed color-mix(in srgb, var(--vscode-charts-orange, #ff9800) 50%, transparent);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--vscode-charts-orange, #ff9800) 7%, transparent);
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .deferred-list.open { display: flex; }
+  .deferred-item {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 2px 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .deferred-item:hover { color: var(--vscode-textLink-foreground); }
+  .deferred-item .deferred-tag {
+    font-family: var(--vscode-editor-font-family);
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 2px;
+    background: var(--vscode-editorWidget-background);
+    color: var(--vscode-descriptionForeground);
+    flex-shrink: 0;
+  }
+  .deferred-item.promoted .deferred-text {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+  }
   .status-done { --card-accent: var(--vscode-charts-green, #4caf50); }
   .status-in-progress { --card-accent: var(--vscode-charts-blue, #2196f3); }
   .status-review { --card-accent: var(--vscode-charts-purple, #9c27b0); }
@@ -436,11 +508,36 @@ function renderHtml(webview: vscode.Webview, _extensionUri: vscode.Uri): string 
       document.getElementById('board').innerHTML = html;
 
       document.querySelectorAll('.card').forEach(el => {
-        el.addEventListener('click', () => {
+        el.addEventListener('click', (event) => {
+          if (event.target.closest('.deferred-pill') ||
+              event.target.closest('.deferred-list')) {
+            return;
+          }
           const filePath = el.getAttribute('data-file');
           if (filePath) {
             vscode.postMessage({ type: 'openStory', filePath });
           }
+        });
+      });
+
+      document.querySelectorAll('.deferred-pill').forEach(el => {
+        el.addEventListener('click', (event) => {
+          event.stopPropagation();
+          const card = el.closest('.card');
+          const list = card && card.querySelector('.deferred-list');
+          if (list) {
+            list.classList.toggle('open');
+          }
+        });
+      });
+
+      const deferredFile = (state.projects[0] && state.projects[0].deferredFilePath) || '';
+      document.querySelectorAll('.deferred-item').forEach(el => {
+        el.addEventListener('click', (event) => {
+          event.stopPropagation();
+          if (!deferredFile) return;
+          const line = Number(el.getAttribute('data-line') || '0');
+          vscode.postMessage({ type: 'openDeferred', filePath: deferredFile, line });
         });
       });
     }
@@ -454,6 +551,11 @@ function renderHtml(webview: vscode.Webview, _extensionUri: vscode.Uri): string 
       const progress = s.taskTotal > 0
         ? '<div class="progress"><div class="progress-fill" style="width:' + pct + '%"></div></div>'
         : '';
+      const deferredCount = (s.deferred || []).length;
+      const deferredPill = deferredCount > 0
+        ? '<span class="deferred-pill" title="Click to view deferred items">⚠ ' + deferredCount + ' deferred</span>'
+        : '';
+      const deferredList = deferredCount > 0 ? renderDeferredList(s.deferred) : '';
       return (
         '<article class="card ' + statusCls + '"' + fileAttr + '>' +
           '<div class="card-id">' + s.epicNumber + '.' + s.storyNumber + '</div>' +
@@ -461,10 +563,27 @@ function renderHtml(webview: vscode.Webview, _extensionUri: vscode.Uri): string 
           '<div class="card-meta">' +
             (taskMeta ? '<span>' + taskMeta + '</span>' : '') +
             (acMeta ? '<span>' + acMeta + '</span>' : '') +
+            deferredPill +
           '</div>' +
           progress +
+          deferredList +
         '</article>'
       );
+    }
+
+    function renderDeferredList(items) {
+      const rows = items.map(item => {
+        const tag = item.tag ? '<span class="deferred-tag">' + escapeHtml(item.tag) + '</span>' : '';
+        const promotedCls = item.promoted ? ' promoted' : '';
+        const arrow = item.promoted ? '⤴ ' : '';
+        return (
+          '<div class="deferred-item' + promotedCls + '" data-line="' + item.sourceLine + '" title="' + escapeAttr(item.text) + '">' +
+            tag +
+            '<span class="deferred-text">' + arrow + escapeHtml(item.text) + '</span>' +
+          '</div>'
+        );
+      }).join('');
+      return '<div class="deferred-list">' + rows + '</div>';
     }
 
     function statusLabel(s) {

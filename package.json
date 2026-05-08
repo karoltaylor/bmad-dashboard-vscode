@@ -2,7 +2,7 @@
   "name": "bmad-dashboard",
   "displayName": "BMAD Dashboard",
   "description": "Read-only JIRA-style dashboard for BMAD method projects (epics, stories, tasks) sourced from _bmad-output/.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
@@ -10,6 +10,15 @@
   "categories": [
     "Other"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/karoltaylor/bmad-dashboard-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/karoltaylor/bmad-dashboard-vscode/issues"
+  },
+  "homepage": "https://github.com/karoltaylor/bmad-dashboard-vscode#readme",
+  "license": "MIT",
   "main": "./out/extension.js",
   "activationEvents": [
     "workspaceContains:**/_bmad-output/implementation-artifacts/sprint-status.yaml"

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BmadEpic, BmadProject, BmadStory, BmadTask, StoryStatus } from './model';
+import { BmadDeferredItem, BmadEpic, BmadProject, BmadStory, BmadTask, StoryStatus } from './model';
 
 type TreeNode =
   | { kind: 'project'; project: BmadProject }
@@ -9,6 +9,8 @@ type TreeNode =
   | { kind: 'acGroup'; story: BmadStory }
   | { kind: 'ac'; index: number; text: string }
   | { kind: 'task'; task: BmadTask; storyFile: string | undefined }
+  | { kind: 'deferredGroup'; story: BmadStory; deferredFile: string | undefined }
+  | { kind: 'deferred'; item: BmadDeferredItem; deferredFile: string | undefined }
   | { kind: 'message'; text: string; icon?: vscode.ThemeIcon };
 
 export class BmadTreeProvider implements vscode.TreeDataProvider<TreeNode> {
@@ -70,7 +72,9 @@ export class BmadTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       case 'story': {
         const item = new vscode.TreeItem(
           `${node.story.epicNumber}.${node.story.storyNumber} ${node.story.title}`,
-          node.story.tasks.length > 0 || node.story.acceptanceCriteria.length > 0
+          node.story.tasks.length > 0 ||
+          node.story.acceptanceCriteria.length > 0 ||
+          node.story.deferred.length > 0
             ? vscode.TreeItemCollapsibleState.Collapsed
             : vscode.TreeItemCollapsibleState.None
         );
@@ -125,6 +129,50 @@ export class BmadTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         }
         return item;
       }
+      case 'deferredGroup': {
+        const item = new vscode.TreeItem(
+          `Deferred (${node.story.deferred.length})`,
+          node.story.deferred.length > 0
+            ? vscode.TreeItemCollapsibleState.Collapsed
+            : vscode.TreeItemCollapsibleState.None
+        );
+        item.iconPath = new vscode.ThemeIcon(
+          'warning',
+          new vscode.ThemeColor('charts.orange')
+        );
+        item.tooltip = 'Items deferred from code review — work that still needs to be done.';
+        if (node.deferredFile) {
+          item.command = {
+            command: 'bmadDashboard.openFile',
+            title: 'Open Deferred Work Log',
+            arguments: [node.deferredFile, 0],
+          };
+          item.resourceUri = vscode.Uri.file(node.deferredFile);
+        }
+        return item;
+      }
+      case 'deferred': {
+        const label = formatDeferredLabel(node.item);
+        const item = new vscode.TreeItem(
+          truncate(label, 140),
+          vscode.TreeItemCollapsibleState.None
+        );
+        item.iconPath = new vscode.ThemeIcon(
+          node.item.promoted ? 'arrow-up' : 'circle-outline',
+          node.item.promoted
+            ? new vscode.ThemeColor('charts.blue')
+            : new vscode.ThemeColor('charts.orange')
+        );
+        item.tooltip = deferredTooltip(node.item);
+        if (node.deferredFile) {
+          item.command = {
+            command: 'bmadDashboard.openFile',
+            title: 'Open Deferred Work Log',
+            arguments: [node.deferredFile, node.item.sourceLine],
+          };
+        }
+        return item;
+      }
     }
   }
 
@@ -168,6 +216,13 @@ export class BmadTreeProvider implements vscode.TreeDataProvider<TreeNode> {
         for (const t of node.story.tasks) {
           children.push({ kind: 'task', task: t, storyFile: node.story.filePath });
         }
+        if (node.story.deferred.length > 0) {
+          children.push({
+            kind: 'deferredGroup',
+            story: node.story,
+            deferredFile: node.project.deferredFilePath,
+          });
+        }
         return children;
       }
       case 'acGroup':
@@ -181,6 +236,12 @@ export class BmadTreeProvider implements vscode.TreeDataProvider<TreeNode> {
           kind: 'task' as const,
           task: sub,
           storyFile: node.storyFile,
+        }));
+      case 'deferredGroup':
+        return node.story.deferred.map((item) => ({
+          kind: 'deferred' as const,
+          item,
+          deferredFile: node.deferredFile,
         }));
       default:
         return [];
@@ -241,6 +302,9 @@ function storyDescription(story: BmadStory): string {
   if (story.acCount > 0) {
     parts.push(`${story.acCount} AC`);
   }
+  if (story.deferred.length > 0) {
+    parts.push(`⚠ ${story.deferred.length} deferred`);
+  }
   return parts.join(' · ');
 }
 
@@ -252,9 +316,36 @@ function storyTooltip(story: BmadStory): vscode.MarkdownString {
   if (story.taskCounts.total > 0) {
     md.appendMarkdown(`- ${story.taskCounts.done}/${story.taskCounts.total} tasks complete\n`);
   }
+  if (story.deferred.length > 0) {
+    md.appendMarkdown(`- ${story.deferred.length} deferred item${story.deferred.length === 1 ? '' : 's'} from code review\n`);
+  }
   if (!story.filePath) {
     md.appendMarkdown(`- _Story file not yet created_\n`);
   }
+  return md;
+}
+
+function formatDeferredLabel(item: BmadDeferredItem): string {
+  const tag = item.tag ? `[${item.tag}] ` : '';
+  const promoted = item.promoted ? '⤴ ' : '';
+  return `${promoted}${tag}${item.text}`;
+}
+
+function deferredTooltip(item: BmadDeferredItem): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(undefined, true);
+  if (item.tag) {
+    md.appendMarkdown(`**[${item.tag}]**`);
+    if (item.reviewDate) {
+      md.appendMarkdown(` · ${item.reviewDate}`);
+    }
+    md.appendMarkdown('\n\n');
+  } else if (item.reviewDate) {
+    md.appendMarkdown(`_${item.reviewDate}_\n\n`);
+  }
+  if (item.promoted) {
+    md.appendMarkdown('_Promoted to a follow-up story._\n\n');
+  }
+  md.appendMarkdown(item.text);
   return md;
 }
 

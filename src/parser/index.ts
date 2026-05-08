@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { BmadEpic, BmadProject, BmadStory, normalizeStatus } from '../model';
+import { BmadDeferredItem, BmadEpic, BmadProject, BmadStory, normalizeStatus } from '../model';
+import { parseDeferredWorkFile } from './deferred';
 import { parseEpicTitles } from './epics';
 import { parseSprintStatus } from './sprintStatus';
 import { countTasks, parseStoryFile } from './story';
@@ -9,6 +10,7 @@ import { countTasks, parseStoryFile } from './story';
 const SPRINT_STATUS_REL = path.join('_bmad-output', 'implementation-artifacts', 'sprint-status.yaml');
 const STORIES_REL = path.join('_bmad-output', 'implementation-artifacts', 'stories');
 const EPICS_REL = path.join('_bmad-output', 'planning-artifacts', 'epics.md');
+const DEFERRED_REL = path.join('_bmad-output', 'implementation-artifacts', 'deferred-work.md');
 
 export function loadProjectsForWorkspace(): BmadProject[] {
   const folders = vscode.workspace.workspaceFolders ?? [];
@@ -43,6 +45,7 @@ export function loadProject(folder: vscode.WorkspaceFolder): BmadProject | undef
       generated: undefined,
       lastUpdated: undefined,
       epics: [],
+      deferredFilePath: undefined,
       errors,
     };
   }
@@ -56,9 +59,24 @@ export function loadProject(folder: vscode.WorkspaceFolder): BmadProject | undef
     }
   })();
 
+  const deferredPath = path.join(rootDir, DEFERRED_REL);
+  const deferredFileExists = fs.existsSync(deferredPath);
+  const deferredByStory = (() => {
+    if (!deferredFileExists) {
+      return new Map<string, BmadDeferredItem[]>();
+    }
+    try {
+      return parseDeferredWorkFile(deferredPath);
+    } catch (e) {
+      errors.push(`Failed to parse deferred-work.md: ${(e as Error).message}`);
+      return new Map<string, BmadDeferredItem[]>();
+    }
+  })();
+
   const storiesByEpic = new Map<number, BmadStory[]>();
   for (const [, info] of sprint.storyStatuses) {
-    const story = buildStory(rootDir, info, errors);
+    const deferred = deferredByStory.get(`${info.epicNumber}.${info.storyNumber}`) ?? [];
+    const story = buildStory(rootDir, info, deferred, errors);
     const list = storiesByEpic.get(info.epicNumber) ?? [];
     list.push(story);
     storiesByEpic.set(info.epicNumber, list);
@@ -94,6 +112,7 @@ export function loadProject(folder: vscode.WorkspaceFolder): BmadProject | undef
     generated: sprint.generated,
     lastUpdated: sprint.lastUpdated,
     epics,
+    deferredFilePath: deferredFileExists ? deferredPath : undefined,
     errors,
   };
 }
@@ -101,6 +120,7 @@ export function loadProject(folder: vscode.WorkspaceFolder): BmadProject | undef
 function buildStory(
   rootDir: string,
   info: { epicNumber: number; storyNumber: number; status: import('../model').StoryStatus; rawKey: string },
+  deferred: BmadDeferredItem[],
   errors: string[]
 ): BmadStory {
   const fileName = `story-${info.epicNumber}.${info.storyNumber}.md`;
@@ -144,6 +164,7 @@ function buildStory(
     tasks,
     taskCounts: countTasks(tasks),
     acCount: acceptanceCriteria.length,
+    deferred,
   };
 }
 
